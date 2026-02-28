@@ -1,23 +1,77 @@
-import { CosmosClient } from "@azure/cosmos";
-import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
+import {
+  app,
+  HttpRequest,
+  HttpResponseInit,
+  InvocationContext,
+} from "@azure/functions";
+import { getTaskById } from "../services/taskService";
 
-export async function GetTask(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
-    context.log(`Http function processed request for url "${request.url}"`);
+export async function GetTask(
+  request: HttpRequest,
+  context: InvocationContext,
+): Promise<HttpResponseInit> {
+  try {
+    const id = request.params.id;
+    const organizationId = "default-org";
 
-    const taskId = request.query.get('id');
-    const organizationId = request.query.get('organizationId');
+    if (!id) {
+      return {
+        status: 400,
+        jsonBody: {
+          success: false,
+          message: "Task id is required",
+          data: null,
+        },
+      };
+    }
 
-    const client = new CosmosClient("this is a connection string");
-    const task = await client.database("TaskApp")
-        .container("Tasks")
-        .item(taskId, organizationId)
-        .read();
+    if (request.method === "GET") {
+      const task = await getTaskById(id, organizationId);
 
-    return { jsonBody: task.resource, status: 200 };
-};
+      if (!task) {
+        return {
+          status: 404,
+          jsonBody: {
+            success: false,
+            message: "Task not found",
+            data: null,
+          },
+        };
+      }
 
-app.http('GetTask', {
-    methods: ['GET'],
-    authLevel: 'anonymous',
-    handler: GetTask
+      return {
+        status: 200,
+        jsonBody: {
+          success: true,
+          message: "Task fetched successfully",
+          data: task,
+        },
+      };
+    }
+
+    return {
+      status: 405,
+      jsonBody: {
+        success: false,
+        message: "Method not allowed",
+        data: null,
+      },
+    };
+  } catch (error) {
+    return {
+      status: 500,
+      jsonBody: {
+        success: false,
+        message: "Internal server error",
+        data: null,
+      },
+    };
+  }
+}
+
+app.http("GetTask", {
+  route: "tasks/{id}",
+  methods: ["GET"],
+  authLevel: "anonymous",
+  handler: GetTask,
 });

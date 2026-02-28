@@ -1,33 +1,90 @@
-import { CosmosClient } from "@azure/cosmos";
-import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
+import {
+  app,
+  HttpRequest,
+  HttpResponseInit,
+  InvocationContext,
+} from "@azure/functions";
+import { TaskStatus } from "../models/Task";
+import { updateTask } from "../services/taskService";
 
+const isValidStatus = (status: any): status is TaskStatus =>
+  ["Todo", "InProgress", "Done"].includes(status);
 
-export async function UpdateTask(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
-    const body = await request.json() as object;
-    const taskId = request.query.get('id');
-    const organizationId = request.query.get('organizationId');
+export async function UpdateTask(
+  request: HttpRequest,
+  context: InvocationContext,
+): Promise<HttpResponseInit> {
+  try {
+    const id = request.params.id;
+    const body = (await request.json()) as any;
+    const organizationId = "default-org";
 
-    let patchRequests = [];
-
-    for (let key in body) {
-        patchRequests.push({
-            "op": "replace",
-            "path": `/${key}`,
-            "value": body[key]
-        });
+    if (!body || typeof body !== "object") {
+      return {
+        status: 400,
+        jsonBody: {
+          success: false,
+          message: "Invalid request body",
+        },
+      };
     }
 
-    const client = new CosmosClient("this is a connection string");
-    const createdTask = await client.database("TaskApp")
-        .container("Tasks")
-        .item(taskId, organizationId)
-        .patch(patchRequests);
+    const data: Partial<{
+      status: TaskStatus;
+      formData: Record<string, any>;
+    }> = {};
 
-    return { jsonBody: createdTask.resource, status: 200 };
-};
+    if (body.status) {
+      if (!isValidStatus(body.status)) {
+        return {
+          status: 400,
+          jsonBody: {
+            success: false,
+            message: "Invalid status value",
+          },
+        };
+      }
+      data.status = body.status;
+    }
 
-app.http('UpdateTask', {
-    methods: ['POST'],
-    authLevel: 'anonymous',
-    handler: UpdateTask
+    if (body.formData) {
+      if (typeof body.formData !== "object") {
+        return {
+          status: 400,
+          jsonBody: {
+            success: false,
+            message: "formData must be an object",
+          },
+        };
+      }
+      data.formData = body.formData;
+    }
+
+    const updated = await updateTask(id, data, organizationId);
+
+    return {
+      status: 200,
+      jsonBody: {
+        success: true,
+        message: "Task updated successfully",
+        data: updated,
+      },
+    };
+  } catch (error) {
+    context.error("UpdateTask error:", error);
+    return {
+      status: 500,
+      jsonBody: {
+        success: false,
+        message: "Internal server error",
+      },
+    };
+  }
+}
+
+app.http("UpdateTask", {
+  route: "updatetasks/{id}",
+  methods: ["PUT"],
+  authLevel: "anonymous",
+  handler: UpdateTask,
 });
